@@ -1,0 +1,360 @@
+# PADRÕES DE ARQUITETURA DO PROJETO
+# Este arquivo define os padrões obrigatórios do projeto MinimalMarketing
+
+## ❌ PROIBIÇÕES ABSOLUTAS
+
+### ARQUIVOS MARKDOWN
+- NÃO CRIAR arquivos .md além do README.md
+- NÃO CRIAR CHANGELOGs, GUIAs, DOCs em Markdown
+- NÃO CRIAR arquivos de documentação espalhados pelo projeto
+- Documentação vai em comentários no código ou no README.md
+
+### CÓDIGO
+- NÃO usar console.log para debug em produção
+- NÃO commitar credenciais ou secrets
+- NÃO criar funções com mais de 50 linhas (refatorar)
+- NÃO deixar código comentado (deletar)
+
+---
+
+## ✅ PADRÕES OBRIGATÓRIOS
+
+### 1. ESTRUTURA DE DIRETÓRIOS
+
+```
+/app
+  /(public)      # Rotas públicas (sem autenticação)
+  /(auth)        # Rotas autenticadas (com validação)
+  /api           # API routes (RESTful)
+  /actions       # Server Actions (formulários, mutations)
+
+/lib
+  - auth.ts      # Autenticação e JWT
+  - db.ts        # Conexão com banco
+  - utils.ts     # Utilitários gerais
+  - access-control.ts     # Validação de acesso
+  - api-middleware.ts     # Middleware de APIs
+  - discount-helpers.ts   # Lógica de descontos
+
+/contexts
+  - AuthContext.tsx       # Context de autenticação
+  - CartContext.tsx       # Context de carrinho
+  - DiscountContext.tsx   # Context de descontos
+
+/components
+  /ui            # Componentes reutilizáveis (Button, Card, etc)
+  /layout        # Layout (Header, Footer, Container)
+
+/drizzle
+  - schema.ts    # Schema do banco de dados
+
+/scripts
+  - Scripts utilitários (setup, deploy, etc)
+```
+
+### 2. SEGURANÇA (CRÍTICO)
+
+#### Autenticação e Autorização
+- SEMPRE validar sessão JWT em APIs protegidas
+- NUNCA confiar em dados do cliente (validar server-side)
+- SEMPRE usar `requireAuth()` antes de operações sensíveis
+- NUNCA aceitar userId da query/body (usar sessão)
+
+#### Validação de Acesso
+- SEMPRE validar acesso a produtos via `verifyUserProductAccess()`
+- SEMPRE verificar `isActive === true` E `expiryDate > now`
+- SEMPRE usar princípio fail-safe (negar se dúvida)
+- SEMPRE implementar defense in depth (múltiplas camadas)
+
+#### APIs Protegidas
+```typescript
+// Padrão obrigatório para APIs protegidas:
+export async function GET(req: NextRequest) {
+  // 1. VALIDAR AUTENTICAÇÃO
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
+  // 2. VALIDAR ACESSO (se necessário)
+  const access = await verifyUserProductAccess(userId, productId);
+  if (!access.hasAccess) return forbidden();
+
+  // 3. EXECUTAR LÓGICA
+  // ...
+
+  // 4. RETORNAR RESPOSTA
+  return NextResponse.json(data);
+}
+```
+
+#### Códigos HTTP Corretos
+- 200: Sucesso
+- 201: Criado com sucesso
+- 400: Bad Request (parâmetros inválidos)
+- 401: Unauthorized (não autenticado)
+- 403: Forbidden (autenticado mas sem permissão)
+- 404: Not Found (recurso não existe)
+- 500: Internal Server Error (erro do servidor)
+
+### 3. BANCO DE DADOS
+
+#### Schema com Drizzle ORM
+- SEMPRE usar Drizzle ORM (nunca SQL raw)
+- SEMPRE definir relações no schema
+- SEMPRE usar transactions para operações atômicas
+- SEMPRE usar índices para queries frequentes
+
+#### Timestamps
+- SEMPRE incluir `createdAt` e `updatedAt`
+- SEMPRE usar `defaultNow()` para timestamps
+
+#### Soft Delete
+- PREFERIR soft delete (isActive flag) ao invés de DELETE
+- Manter histórico de dados para auditoria
+
+### 4. STRIPE E PAGAMENTOS
+
+#### Checkout Flow
+1. Cliente adiciona produtos ao carrinho (CartContext)
+2. Aplica descontos no backend (ANTES do Stripe)
+3. Cria orders com status PENDING
+4. Cria Stripe Checkout Session
+5. Redireciona para Stripe
+6. Webhook processa pagamento aprovado
+7. Atualiza orders para PAID
+8. Cria userAssets (acesso do usuário)
+
+#### Webhook do Stripe
+- SEMPRE validar assinatura do webhook
+- SEMPRE verificar idempotência (processedWebhooks)
+- SEMPRE validar payment_status === 'paid'
+- SEMPRE validar metadata (userId, orderIds)
+- SEMPRE usar transactions para operações críticas
+
+#### Descontos
+- SEMPRE aplicar desconto NO BACKEND (nunca confiar no frontend)
+- SEMPRE salvar preço COM DESCONTO na order
+- SEMPRE enviar preço COM DESCONTO para Stripe
+- Desconto é aplicado em `createCheckoutSession()` via `applyDiscountToProducts()`
+
+### 5. TYPESCRIPT
+
+#### Types e Interfaces
+- SEMPRE definir tipos explícitos
+- NUNCA usar `any` (usar `unknown` se necessário)
+- SEMPRE exportar interfaces de APIs
+- SEMPRE usar tipos do Drizzle (inferidos do schema)
+
+#### Nomenclatura
+- Componentes: PascalCase (`ProductCard.tsx`)
+- Funções: camelCase (`verifyUserAccess()`)
+- Constantes: UPPER_SNAKE_CASE (`MAX_RETRIES`)
+- Tipos: PascalCase (`interface AccessResult`)
+
+### 6. REACT E NEXT.JS
+
+#### Componentes
+- SEMPRE usar 'use client' apenas quando necessário
+- PREFERIR Server Components quando possível
+- SEMPRE usar hooks do Next.js (useRouter, useParams, etc)
+- SEMPRE validar loading/error states
+
+#### Server Actions
+- SEMPRE usar 'use server' em actions
+- SEMPRE validar inputs
+- SEMPRE tratar erros
+- SEMPRE retornar objetos tipados
+
+#### APIs vs Actions
+- APIs: Operações RESTful (GET, POST, PUT, DELETE)
+- Actions: Mutations de formulários, operações complexas
+
+### 7. ESTADO E CONTEXT
+
+#### Context Pattern
+```typescript
+// 1. Criar interface do context
+interface ContextType {
+  // ...
+}
+
+// 2. Criar context com valor default
+const Context = createContext<ContextType | null>(null);
+
+// 3. Provider com useState/useEffect
+export function Provider({ children }) {
+  const [state, setState] = useState();
+  // ...
+  return <Context.Provider value={{...}}>{children}</Context.Provider>;
+}
+
+// 4. Hook customizado
+export function useContext() {
+  const context = useContext(Context);
+  if (!context) throw new Error('useContext must be used within Provider');
+  return context;
+}
+```
+
+#### localStorage
+- SEMPRE sincronizar com debounce (evitar writes excessivos)
+- SEMPRE usar hidratação adequada (evitar hydration mismatch)
+- SEMPRE versionar keys (`cart_items_v1`)
+
+### 8. TRATAMENTO DE ERROS
+
+#### Try-Catch
+- SEMPRE envolver operações async em try-catch
+- SEMPRE logar erros com contexto suficiente
+- SEMPRE retornar mensagens user-friendly
+- NUNCA expor stack traces para o usuário
+
+#### Logging
+```typescript
+// Formato padrão de logs:
+console.log('[MODULE_NAME] Description', { context });
+console.error('[MODULE_NAME_ERROR] Error description:', error);
+
+// Níveis:
+// [INFO] - Informações gerais
+// [WARNING] - Avisos, mas não crítico
+// [ERROR] - Erros que impedem operação
+// [ACCESS_LOG] - Auditoria de acessos
+```
+
+### 9. PERFORMANCE
+
+#### Otimizações Obrigatórias
+- SEMPRE usar lazy loading para rotas pesadas
+- SEMPRE otimizar imagens (Next Image)
+- SEMPRE usar debounce em inputs de busca
+- SEMPRE usar pagination em listas grandes
+- SEMPRE usar índices no banco para queries frequentes
+
+#### Caching
+- SEMPRE usar cache do Next.js quando apropriado
+- SEMPRE usar revalidation strategies
+- NUNCA fazer requests desnecessários
+
+### 10. GIT E VERSIONAMENTO
+
+#### Commits
+```
+Formato: <tipo>: <descrição>
+
+Tipos:
+- feat: Nova funcionalidade
+- fix: Correção de bug
+- security: Correção de segurança
+- refactor: Refatoração
+- perf: Melhoria de performance
+- docs: Apenas documentação
+- style: Formatação (sem mudança de lógica)
+- test: Testes
+- chore: Tarefas de manutenção
+
+Exemplos:
+- feat: adicionar validação de acesso a módulos
+- fix: corrigir bug de expiryDate em utils
+- security: corrigir vulnerabilidade em API de orders
+```
+
+#### Branches
+- `main` - Produção (sempre estável)
+- `develop` - Desenvolvimento (staging)
+- `feature/nome-feature` - Features novas
+- `fix/nome-bug` - Correções de bugs
+- `security/nome-fix` - Correções de segurança
+
+#### .gitignore
+```
+node_modules/
+.next/
+.env
+.env.local
+.DS_Store
+*.log
+.vercel
+dist/
+build/
+*.md (EXCETO README.md)
+```
+
+---
+
+## 🔍 CHECKLIST DE CODE REVIEW
+
+Antes de commitar, verificar:
+
+### Segurança
+- [ ] APIs protegidas validam sessão JWT?
+- [ ] Validação de acesso implementada?
+- [ ] Inputs validados server-side?
+- [ ] Códigos HTTP corretos?
+- [ ] Erros não expõem informações sensíveis?
+
+### Código
+- [ ] TypeScript sem erros?
+- [ ] Sem console.logs desnecessários?
+- [ ] Sem código comentado?
+- [ ] Funções com menos de 50 linhas?
+- [ ] Nomenclatura consistente?
+
+### Performance
+- [ ] Queries otimizadas?
+- [ ] Sem N+1 queries?
+- [ ] Debounce implementado onde necessário?
+- [ ] Imagens otimizadas?
+
+### Documentação
+- [ ] Comentários em código complexo?
+- [ ] Tipos/interfaces documentadas?
+- [ ] NENHUM arquivo .md desnecessário criado?
+
+---
+
+## 📚 REFERÊNCIAS RÁPIDAS
+
+### Imports Comuns
+```typescript
+// Auth
+import { requireAuth } from '@/lib/api-middleware';
+import { verifyUserProductAccess } from '@/lib/access-control';
+import { getSession } from '@/lib/auth';
+
+// Database
+import { db } from '@/lib/db';
+import { users, products, orders, userAssets } from '@/drizzle/schema';
+import { eq, and, or } from 'drizzle-orm';
+
+// Next.js
+import { NextRequest, NextResponse } from 'next/server';
+import { useRouter, useParams } from 'next/navigation';
+
+// Context
+import { useAuth } from '@/contexts/AuthContext';
+import { useCart } from '@/contexts/CartContext';
+```
+
+### Funções Críticas
+- `requireAuth(request)` - Validar autenticação em API
+- `verifyUserProductAccess(userId, productId)` - Validar acesso a produto
+- `applyDiscountToProducts(products)` - Aplicar descontos
+- `createCheckoutSession(userId, productIds)` - Criar sessão Stripe
+
+---
+
+## 🚫 LEMBRE-SE
+
+**NUNCA CRIAR ARQUIVOS .md ALÉM DO README.md**
+
+Se precisar documentar algo:
+1. Adicionar comentários no código
+2. Atualizar o README.md
+3. Criar interfaces/tipos bem documentados
+
+**NÃO POLUIR O PROJETO COM DOCUMENTAÇÃO ESPALHADA**
+
+---
+
+Última atualização: 2026-01-15
+Versão: 1.0.0
