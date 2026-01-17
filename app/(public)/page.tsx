@@ -1,22 +1,66 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { Container } from '@/components/ui/Container';
 import { ProductCard } from '@/components/ui/ProductCard';
 import { mockProducts } from '@/data/mockData';
 import { ProductType } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function HomePage() {
   const [selectedType, setSelectedType] = useState<ProductType | 'all'>('all');
+  const [ownedProductIds, setOwnedProductIds] = useState<Set<string>>(new Set());
+  const { user, isAuthenticated } = useAuth();
+
+  // Buscar produtos que o usuário já possui
+  useEffect(() => {
+    async function fetchOwnedProducts() {
+      if (!isAuthenticated) {
+        setOwnedProductIds(new Set());
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/orders/user', {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const userProducts = await response.json();
+          // Filtrar apenas produtos com acesso válido
+          const validProductIds = userProducts
+            .filter((p: any) => p.hasValidAccess)
+            .map((p: any) => p.productId);
+          setOwnedProductIds(new Set(validProductIds));
+        }
+      } catch (error) {
+        console.error('Erro ao buscar produtos do usuário:', error);
+      }
+    }
+
+    fetchOwnedProducts();
+  }, [isAuthenticated, user]);
 
   const filteredProducts = mockProducts.filter(product => {
+    // Não mostrar produtos que o usuário já possui
+    if (ownedProductIds.has(product.id)) {
+      return false;
+    }
     return selectedType === 'all' || product.type === selectedType;
   });
 
   const totalSold = mockProducts.reduce((acc, p) => acc + (p.soldCount || 0), 0);
-  const featuredProducts = mockProducts.filter(p => p.badge === 'best-seller' || p.badge === 'popular').slice(0, 3);
+  const featuredProducts = mockProducts
+    .filter(p => {
+      // Não mostrar produtos que o usuário já possui
+      if (ownedProductIds.has(p.id)) {
+        return false;
+      }
+      return p.badge === 'best-seller' || p.badge === 'popular';
+    })
+    .slice(0, 3);
 
   return (
     <div className="min-h-screen flex flex-col bg-white">

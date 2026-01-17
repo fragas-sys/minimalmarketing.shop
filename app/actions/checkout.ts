@@ -2,7 +2,7 @@
 
 import Stripe from 'stripe';
 import { db } from '@/lib/db';
-import { orders, products } from '@/drizzle/schema';
+import { orders, products, userAssets } from '@/drizzle/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { applyDiscountToProducts } from '@/lib/discount-helpers';
@@ -34,7 +34,31 @@ export async function createCheckoutSession(
       throw new Error('Nenhum produto válido encontrado');
     }
 
-    // 3. VERIFICAR SE USUÁRIO JÁ POSSUI PEDIDOS PENDENTES PARA ESTES PRODUTOS
+    // 3. VERIFICAR SE USUÁRIO JÁ POSSUI OS PRODUTOS (CRÍTICO - SEGURANÇA)
+    const ownedProducts = await db
+      .select()
+      .from(userAssets)
+      .where(and(
+        eq(userAssets.userId, userId),
+        eq(userAssets.isActive, true),
+        inArray(userAssets.productId, productIds)
+      ));
+
+    if (ownedProducts.length > 0) {
+      const ownedProductNames = ownedProducts
+        .map(owned => {
+          const product = validProducts.find(p => p.id === owned.productId);
+          return product?.name || owned.productId;
+        })
+        .join(', ');
+
+      throw new Error(
+        `Você já possui os seguintes produtos: ${ownedProductNames}. ` +
+        'Não é possível comprar produtos que você já possui.'
+      );
+    }
+
+    // 4. VERIFICAR SE USUÁRIO JÁ POSSUI PEDIDOS PENDENTES PARA ESTES PRODUTOS
     const existingPendingOrders = await db
       .select()
       .from(orders)
@@ -54,7 +78,7 @@ export async function createCheckoutSession(
       console.log(`🧹 Removidos ${oldOrderIds.length} pedidos pendentes antigos`);
     }
 
-    // 4. APLICAR DESCONTOS
+    // 5. APLICAR DESCONTOS
     const productsList = validProducts.map(p => ({
       id: p.id,
       category: p.category,
@@ -63,7 +87,7 @@ export async function createCheckoutSession(
 
     const discountsMap = await applyDiscountToProducts(productsList);
 
-    // 5. CRIAR PEDIDOS PENDENTES COM PREÇOS CORRETOS
+    // 6. CRIAR PEDIDOS PENDENTES COM PREÇOS CORRETOS
     const orderIds: string[] = [];
     const orderDetails: Array<{
       productId: string;
@@ -99,7 +123,7 @@ export async function createCheckoutSession(
       console.log(`📦 Pedido criado: ${product.name} - ${discountInfo.hasDiscount ? `${discountInfo.originalPrice} → ${discountInfo.finalPrice} (-${discountInfo.discountPercentage}%)` : discountInfo.finalPrice}`);
     }
 
-    // 6. CRIAR LINE ITEMS PARA STRIPE COM PREÇOS CORRETOS
+    // 7. CRIAR LINE ITEMS PARA STRIPE COM PREÇOS CORRETOS
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =
       validProducts.map(product => {
         const discountInfo = discountsMap.get(product.id)!;
@@ -126,13 +150,13 @@ export async function createCheckoutSession(
         };
       });
 
-    // 7. CALCULAR TOTAIS
+    // 8. CALCULAR TOTAIS
     const totalOriginal = orderDetails.reduce((sum, o) => sum + o.originalPrice, 0);
     const totalFinal = orderDetails.reduce((sum, o) => sum + o.finalPrice, 0);
     const totalSavings = totalOriginal - totalFinal;
     const hasAnyDiscount = totalSavings > 0;
 
-    // 8. CRIAR CHECKOUT SESSION
+    // 9. CRIAR CHECKOUT SESSION
     console.log('💳 Criando Stripe Checkout Session...');
 
     const session = await stripe.checkout.sessions.create({
@@ -159,7 +183,7 @@ export async function createCheckoutSession(
 
     console.log('✅ Session criada:', session.id);
 
-    // 9. ATUALIZAR ORDERS COM SESSION ID
+    // 10. ATUALIZAR ORDERS COM SESSION ID
     console.log('🔄 Atualizando orders com sessionId:', session.id);
     console.log('📝 OrderIds a atualizar:', orderIds);
 

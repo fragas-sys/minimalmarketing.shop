@@ -19,13 +19,14 @@ interface CartItem {
 
 interface CartContextType {
   items: CartItem[];
-  addToCart: (product: Product) => void;
+  addToCart: (product: Product) => boolean;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
   getTotal: () => number;
   getSuggestedProducts: () => Product[];
   itemCount: number;
   isHydrated: boolean;
+  ownedProductIds: Set<string>;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -34,6 +35,32 @@ const STORAGE_KEY = 'cart_items_v1';
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [ownedProductIds, setOwnedProductIds] = useState<Set<string>>(new Set());
+
+  // Buscar produtos que o usuário já possui
+  useEffect(() => {
+    async function fetchOwnedProducts() {
+      try {
+        const response = await fetch('/api/orders/user', {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const userProducts = await response.json();
+          // Filtrar apenas produtos com acesso válido
+          const validProductIds = userProducts
+            .filter((p: any) => p.hasValidAccess)
+            .map((p: any) => p.productId);
+          setOwnedProductIds(new Set(validProductIds));
+        }
+      } catch (error) {
+        // Se falhar (ex: usuário não autenticado), manter set vazio
+        setOwnedProductIds(new Set());
+      }
+    }
+
+    fetchOwnedProducts();
+  }, []);
 
   // Carregar carrinho do localStorage (apenas na primeira montagem)
   useEffect(() => {
@@ -43,7 +70,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
         if (savedCart) {
           const parsed = JSON.parse(savedCart);
           if (Array.isArray(parsed) && parsed.length >= 0) {
-            setItems(parsed);
+            // Filtrar produtos já possuídos ao carregar do localStorage
+            const filteredCart = parsed.filter(
+              (item: CartItem) => !ownedProductIds.has(item.product.id)
+            );
+            setItems(filteredCart);
           }
         }
       } catch (error) {
@@ -55,7 +86,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     });
 
     return () => cancelAnimationFrame(hydrationTimer);
-  }, []);
+  }, [ownedProductIds]);
 
   // Salvar carrinho no localStorage (debounced)
   useEffect(() => {
@@ -72,7 +103,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(saveTimer);
   }, [items, isHydrated]);
 
-  const addToCart = useCallback((product: Product) => {
+  const addToCart = useCallback((product: Product): boolean => {
+    // Verificar se o usuário já possui o produto
+    if (ownedProductIds.has(product.id)) {
+      console.warn('Produto já possuído pelo usuário:', product.id);
+      return false;
+    }
+
     setItems((prevItems) => {
       const existingItem = prevItems.find((item) => item.product.id === product.id);
       if (existingItem) {
@@ -80,7 +117,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
       return [...prevItems, { product, quantity: 1 }];
     });
-  }, []);
+    return true;
+  }, [ownedProductIds]);
 
   const removeFromCart = useCallback((productId: string) => {
     setItems((prevItems) => prevItems.filter((item) => item.product.id !== productId));
@@ -199,6 +237,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     getSuggestedProducts,
     itemCount,
     isHydrated,
+    ownedProductIds,
   };
 
   return (

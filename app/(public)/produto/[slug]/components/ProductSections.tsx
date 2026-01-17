@@ -38,11 +38,11 @@ export function BenefitsSection({ benefits }: BenefitsSectionProps) {
   );
 }
 
-interface DeliverablesSection Props {
+interface DeliverablesSectionProps {
   deliverables?: Product['deliverables'];
 }
 
-export function DeliverablesSection({ deliverables }: DeliverablesSection Props) {
+export function DeliverablesSection({ deliverables }: DeliverablesSectionProps) {
   if (!deliverables || deliverables.length === 0) return null;
 
   return (

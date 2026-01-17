@@ -84,14 +84,15 @@ export async function requireProductAccess(
     const access = await verifyUserProductAccess(userId, productId);
 
     if (!access.hasAccess) {
-      const messages: Record<typeof access.reason, string> = {
+      const messages = {
         not_purchased: 'Você não tem acesso a este produto',
         expired: 'Seu acesso a este produto expirou',
         inactive: 'Seu acesso a este produto está inativo',
-        valid: '', // não será usado
       };
 
-      return forbidden(messages[access.reason], access.reason);
+      // Garantir que reason não seja 'valid' (type guard)
+      const reason = access.reason !== 'valid' ? access.reason : 'not_purchased';
+      return forbidden(messages[reason], reason);
     }
 
     // 3. Retornar resultado com acesso válido

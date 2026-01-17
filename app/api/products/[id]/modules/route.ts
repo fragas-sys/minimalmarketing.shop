@@ -29,11 +29,13 @@ export async function GET(
         not_purchased: 'Você não tem acesso a este produto',
         expired: 'Seu acesso a este produto expirou',
         inactive: 'Seu acesso a este produto está inativo',
-        valid: '', // não será usado
       };
 
       console.log(`[MODULES_API] Access denied for user ${userId} to product ${productId}: ${access.reason}`);
-      return forbidden(messages[access.reason], access.reason);
+
+      // Garantir que reason não seja 'valid' (type guard)
+      const reason = access.reason !== 'valid' ? access.reason : 'not_purchased';
+      return forbidden(messages[reason], reason);
     }
 
     // 3. BUSCAR MÓDULOS (apenas se tem acesso válido)

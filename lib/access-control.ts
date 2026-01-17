@@ -137,11 +137,11 @@ export async function verifyUserModuleAccess(
 ): Promise<AccessResult> {
   try {
     // 1. Buscar o módulo para obter o productId
-    const module = await db.query.productModules.findFirst({
+    const productModule = await db.query.productModules.findFirst({
       where: (modules, { eq }) => eq(modules.id, moduleId),
     });
 
-    if (!module) {
+    if (!productModule) {
       console.log(`[ACCESS_DENIED] Module ${moduleId} not found`);
       return {
         hasAccess: false,
@@ -150,7 +150,7 @@ export async function verifyUserModuleAccess(
     }
 
     // 2. Verificar acesso ao produto associado
-    return await verifyUserProductAccess(userId, module.productId);
+    return await verifyUserProductAccess(userId, productModule.productId);
   } catch (error) {
     console.error('[ACCESS_ERROR] Error verifying module access:', error);
     // Fail-safe: em caso de erro, negar acesso

@@ -27,9 +27,9 @@ interface ProductPriceInfo {
 
 interface DiscountContextType {
   discountConfig: DiscountConfig | null;
-  setGeneralDiscount: (percentage: number) => void;
-  setCategoryDiscount: (category: ProductCategory, percentage: number) => void;
-  removeDiscount: () => void;
+  setGeneralDiscount: (percentage: number) => Promise<void>;
+  setCategoryDiscount: (category: ProductCategory, percentage: number) => Promise<void>;
+  removeDiscount: () => Promise<void>;
   getProductPrice: (product: Product) => ProductPriceInfo;
   isDiscountActive: boolean;
   isHydrated: boolean;
